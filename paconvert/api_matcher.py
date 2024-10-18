@@ -436,6 +436,56 @@ class InitEyeMatcher(InitMatcher):
         return super().generate_code(kwargs)
 
 
+class TensorStrideMatcher(BaseMatcher):
+    def generate_code(self, kwargs):
+        if 'dim' not in kwargs or kwargs['dim'] == 'None':
+            API_TEMPLATE = textwrap.dedent(
+                """
+                {}.get_strides()
+                """
+            )
+            code = API_TEMPLATE.format(self.paddleClass)
+        else:
+            API_TEMPLATE = textwrap.dedent(
+                """
+                {}.get_strides()[{}]
+                """
+            )
+            code = API_TEMPLATE.format(self.paddleClass, kwargs['dim'])
+        return code
+
+
+class TensorToSparseCooMatcher(BaseMatcher):
+    def generate_code(self, kwargs):
+        API_TEMPLATE = textwrap.dedent(
+            """
+            {}.to_sparse_coo(len({}.shape))
+            """
+        )
+        code = API_TEMPLATE.format(self.paddleClass, self.paddleClass)
+        return code
+
+
+class TensorNbytesMatcher(BaseMatcher):
+    def get_paddle_class_attribute_nodes(self, node):
+        self.parse_func(node)
+        code = "{}.size * {}.element_size()".format(
+            self.paddleClass, self.paddleClass
+        )
+        return ast.parse(code).body
+
+
+class DimOrderMatcher(BaseMatcher):
+    def generate_code(self, kwargs):
+        API_TEMPLATE = textwrap.dedent(
+            """
+            tuple([i for i in range(len({}.shape))])
+            """
+        )
+        code = API_TEMPLATE.format(self.paddleClass)
+        return code
+
+
 class TRFMPreTrainedTokenizerMatcher(BaseMatcher):
     def generate_aux_code(self):
         CODE_TEMPLATE = textwrap.dedent(
@@ -517,6 +567,36 @@ class InitKaimingMatcher(InitMatcher):
             kwargs.pop("mode")
 
         return super().generate_code(kwargs)
+
+
+class SignalWindowsWatcher(BaseMatcher):
+    def generate_code(self, kwargs):
+        new_kwargs = {}
+        if "sym" in kwargs:
+            kwargs["fftbins"] = "not " + kwargs.pop("sym")
+        if "exponential" in self.torch_api:
+            if "tau" in kwargs:
+                new_kwargs["window"] = "('exponential', None, {})".format(
+                    kwargs.pop("tau")
+                )
+            else:
+                new_kwargs["window"] = "('exponential', None, 1.0)"
+        if "gaussian" in self.torch_api:
+            if "std" in kwargs:
+                new_kwargs["window"] = "('gaussian', {})".format(kwargs.pop("std"))
+            else:
+                new_kwargs["window"] = "('gaussian', 1.0)"
+        if "general_hamming" in self.torch_api:
+            if "alpha" in kwargs:
+                new_kwargs["window"] = "('general_hamming', {})".format(
+                    kwargs.pop("alpha")
+                )
+            else:
+                new_kwargs["window"] = "('general_hamming', 0.54)"
+        if "general_cosine" in self.torch_api:
+            new_kwargs["window"] = "('general_cosine', {})".format(kwargs.pop("a"))
+        new_kwargs.update(kwargs)
+        return GenericMatcher.generate_code(self, new_kwargs)
 
 
 class Num2TensorBinaryWithAlphaMatcher(BaseMatcher):
@@ -832,7 +912,7 @@ class MakeTMatcher(BaseMatcher):
             else:
                 shape = self.parse_args(args)[0]
             kwargs = {"shape": str(shape).replace("'", ""), **kwargs}
-        
+
         if "dtype" not in kwargs:
             kwargs["dtype"] = "float32"
 
@@ -841,7 +921,7 @@ class MakeTMatcher(BaseMatcher):
 
         if "high" not in kwargs:
             kwargs["high"] = 1
-        
+
         if "requires_grad" not in kwargs.keys():
             API_TEMPLATE = textwrap.dedent(
                 """
@@ -871,7 +951,7 @@ class MakeTMatcher(BaseMatcher):
                 kwargs["device"],
                 kwargs["requires_grad"],
             )
-        
+
         return ast.parse(code).body
 
 
